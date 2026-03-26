@@ -2,23 +2,46 @@
 const { parseKoajItem, parseKoajXML } = require('../utils/parsers');
 const uploadXML = async (req, res) => {
   const client = req.dbClient;
-  // Aseguramos que los datos que vienen del form-data sean números
   const tienda_id = parseInt(req.body.tienda_id, 10);
   const margen_objetivo = parseFloat(req.body.margen_objetivo);
 
   if (!req.file) return res.status(400).json({ error: 'No se subió archivo XML' });
 
   try {
-    await client.query('BEGIN'); // Iniciar Transacción
+    await client.query('BEGIN');
 
     const facturaData = parseKoajXML(req.file.buffer);
-    const margen = margen_objetivo / 100;
 
-    // 1. Crear Recepción
+    // --- AQUÍ ESTABA EL ERROR: Asegúrate de que esta línea exista ---
+    const margen = margen_objetivo / 100;
+    // ----------------------------------------------------------------
+
+    // 1. Verificar si ya existen entregas (Lógica de multi-entrega)
+    const entregaRes = await client.query(`
+      SELECT COUNT(*) as conteo 
+      FROM nous.recepciones 
+      WHERE factura_koaj = $1 AND tienda_id = $2
+    `, [facturaData.factura_koaj, tienda_id]);
+
+    const numeroEntrega = parseInt(entregaRes.rows[0].conteo) + 1;
+    const notaEntrega = `Entrega Parcial #${numeroEntrega} (Factura: ${facturaData.factura_koaj})`;
+    // -------------------------------------
+
+    // 1. Crear Recepción con el número de entrega
     const resRecepcion = await client.query(`
-      INSERT INTO recepciones (tienda_id, usuario_id, factura_koaj, fecha_factura, descuento_pct, estado)
-      VALUES ($1, $2, $3, $4, $5, 'abierta') RETURNING id;
-    `, [tienda_id, req.user.id, facturaData.factura_koaj, facturaData.fecha_factura, facturaData.items[0]?.descuento_pct || 0]);
+      INSERT INTO nous.recepciones (
+        tienda_id, usuario_id, factura_koaj, fecha_factura, 
+        descuento_pct, estado, total_unidades, total_costo
+      )
+      VALUES ($1, $2, $3, $4, $5, 'abierta', 0, 0) 
+      RETURNING id;
+    `, [
+      tienda_id,
+      req.user.id,
+      facturaData.factura_koaj,
+      facturaData.fecha_factura,
+      facturaData.items[0]?.descuento_pct || 0
+    ]);
 
     const recepcion_id = resRecepcion.rows[0].id;
     let totalUnidades = 0;
@@ -162,6 +185,44 @@ const scanItem = async (req, res) => {
 
   } catch (error) {
     await client.query('ROLLBACK');
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const getFacturaTrazabilidad = async (req, res) => {
+  const client = req.dbClient;
+  const { factura_koaj } = req.params;
+
+  try {
+    const trazabilidad = await client.query(`
+      SELECT 
+        r.id as recepcion_id,
+        r.fecha_factura,
+        r.estado,
+        r.total_unidades as unidades_xml,
+        r.total_unidades_recibidas as unidades_fisicas,
+        (r.total_unidades - r.total_unidades_recibidas) as diferencia,
+        r.fecha_cierre
+      FROM nous.recepciones r
+      WHERE r.factura_koaj = $1
+      ORDER BY r.id ASC
+    `, [factura_koaj]);
+
+    if (trazabilidad.rowCount === 0) {
+      return res.status(404).json({ error: 'No se encontraron registros para esta factura' });
+    }
+
+    // Calculamos los totales globales de la factura
+    const resumenGlobal = {
+      factura: factura_koaj,
+      total_entregas: trazabilidad.rowCount,
+      total_esperado_xml: parseInt(trazabilidad.rows[0].unidades_xml), // El XML siempre pide lo mismo
+      total_recibido_acumulado: trazabilidad.rows.reduce((acc, row) => acc + (parseInt(row.unidades_fisicas) || 0), 0),
+      detalles_por_entrega: trazabilidad.rows
+    };
+
+    res.json(resumenGlobal);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 };
@@ -322,4 +383,4 @@ const closeReception = async (req, res) => {
   }
 };
 
-module.exports = { uploadXML, getReception, getDiscrepancies, scanItem, closeReception, getVerificationSummary };
+module.exports = { uploadXML, getReception, getDiscrepancies, scanItem, closeReception, getVerificationSummary, getFacturaTrazabilidad };
