@@ -2,13 +2,25 @@ const express = require('express');
 const router = express.Router();
 
 // 1. Importar la función desde el controlador de ventas
-const { registrarVentaRapida } = require('../controllers/ventas.controller');
+const { registrarVentaRapida, abrirCaja, getCajaActiva, cerrarCaja,
+ crearVenta, getVenta, getVentasPorTienda, anularVenta } = require('../controllers/ventas.controller');
 
 // 2. Importar el middleware de autenticación (ajusta la ruta según tu carpeta)
 const { requireAuth } = require('../middlewares/auth.middleware');
 
 // 3. La ruta (ya la tienes bien, solo asegúrate de que los nombres coincidan)
-const rolesPermitidos = ['admin', 'empleado'];
+const rolesPermitidos = ['admin', 'vendedor'];
+
+// --- RUTAS DE CAJAS ---
+router.post('/cajas/abrir', requireAuth(['admin', 'vendedor']), abrirCaja);
+router.get('/cajas/activa/:tienda_id', requireAuth(['admin', 'vendedor']), getCajaActiva);
+router.post('/cajas/:id/cerrar', requireAuth(['admin']), cerrarCaja);
+
+// --- RUTAS DE VENTAS ---
 router.post('/venta-rapida', requireAuth(rolesPermitidos), registrarVentaRapida);
+router.get('/tienda/:tienda_id', requireAuth(['admin']), getVentasPorTienda);
+router.post('/', requireAuth(['admin', 'vendedor']), crearVenta);
+router.get('/:id', requireAuth(['admin', 'vendedor']), getVenta);
+router.post('/:id/anular', requireAuth(['admin']), anularVenta);
 
 module.exports = router;

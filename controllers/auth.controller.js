@@ -1,52 +1,78 @@
-// controllers/auth.controller.js
+const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const pool = require('../config/db');
 
-const login = async (req, res) => {
- const { email, password, tenant } = req.body;
+const register = async (req, res) => {
+ const client = req.dbClient;
+ const { nombre, email, password, rol, tienda_id } = req.body;
 
- if (!email || !password || !tenant) {
-  return res.status(400).json({ error: 'Email, password y tenant son requeridos' });
+ try {
+  // Validar rol
+  const rolesValidos = ['admin', 'vendedor', 'bodega'];
+  if (!rolesValidos.includes(rol)) {
+   return res.status(400).json({ error: 'Rol inválido' });
+  }
+
+  // Hashear contraseña
+  const password_hash = await bcrypt.hash(password, 10);
+
+  const result = await client.query(`
+      INSERT INTO usuarios (nombre, email, password_hash, rol, tienda_id)
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING id, nombre, email, rol, tienda_id
+    `, [nombre, email, password_hash, rol, tienda_id]);
+
+  res.status(201).json({
+   message: 'Usuario creado exitosamente',
+   user: result.rows[0]
+  });
+ } catch (error) {
+  if (error.code === '23505') { // Unique violation
+   return res.status(400).json({ error: 'El email ya está registrado' });
+  }
+  res.status(500).json({ error: error.message });
+ }
+};
+
+const login = async (req, res) => {
+ const { email, password } = req.body;
+
+ if (!email || !password) {
+  return res.status(400).json({ error: 'Email y contraseña son requeridos' });
  }
 
- let client;
+ const client = await pool.connect();
+ const tenantSchema = process.env.TENANT_SCHEMA || 'nous';
+
  try {
-  client = await pool.connect();
+  await client.query(`SET search_path TO "${tenantSchema}"`);
 
-  // 1. Validar que la empresa (tenant) exista en el esquema público
-  const empresaRes = await client.query('SELECT schema_name FROM public.empresas WHERE schema_name = $1 AND activo = true', [tenant]);
-  if (empresaRes.rowCount === 0) {
-   return res.status(404).json({ error: 'Empresa no encontrada o inactiva' });
-  }
+  const result = await client.query(`
+      SELECT * FROM usuarios WHERE email = $1
+    `, [email]);
 
-  // 2. Apuntar la conexión al esquema de esta empresa específica
-  await client.query(`SET search_path = "${tenant}", public`);
-
-  // 3. Buscar al usuario
-  const userRes = await client.query('SELECT * FROM usuarios WHERE email = $1 AND activo = true', [email]);
-  if (userRes.rowCount === 0) {
+  if (result.rowCount === 0) {
    return res.status(401).json({ error: 'Credenciales inválidas' });
   }
 
-  const user = userRes.rows[0];
+  const user = result.rows[0];
 
-  // 4. Validar contraseña
-  // NOTA: Como en tu script SQL pusiste 'CAMBIAR_POR_HASH_BCRYPT', haremos esta validación
-  // directa para que puedas probar hoy. En producción implementaremos bcrypt.compare()
-  if (password !== user.password_hash && user.password_hash !== 'CAMBIAR_POR_HASH_BCRYPT') {
+  // Comparar hash con bcrypt
+  // Comparar hash con bcrypt
+  const valid = await bcrypt.compare(password, user.password_hash);
+  if (!valid) {
    return res.status(401).json({ error: 'Credenciales inválidas' });
   }
 
-  // 5. Generar el Token JWT con la data del usuario y su tenant
   const token = jwt.sign(
    {
     id: user.id,
     rol: user.rol,
-    tienda_id: user.tienda_id, // Si es null, es un super-admin
-    tenant_schema: tenant
+    tienda_id: user.tienda_id,
+    tenant_schema: tenantSchema
    },
    process.env.JWT_SECRET,
-   { expiresIn: '12h' } // El token durará 12 horas
+   { expiresIn: '12h' }
   );
 
   res.json({
@@ -55,17 +81,41 @@ const login = async (req, res) => {
    user: {
     id: user.id,
     nombre: user.nombre,
-    email: user.email,
-    rol: user.rol
+    rol: user.rol,
+    tienda_id: user.tienda_id
    }
   });
-
  } catch (error) {
-  console.error('Error en login:', error);
-  res.status(500).json({ error: 'Error interno del servidor' });
+  res.status(500).json({ error: error.message });
  } finally {
-  if (client) client.release();
+  client.release(); // <-- 3. Liberamos el cliente devuelta al pool
  }
 };
 
-module.exports = { login };
+const fixAdmin = async (req, res) => {
+ const client = await pool.connect();
+ const tenantSchema = process.env.TENANT_SCHEMA || 'nous';
+
+ try {
+  await client.query(`SET search_path TO "${tenantSchema}"`);
+
+  // 1. Encriptamos la contraseña "admin123" aquí mismo
+  const hashSeguro = await bcrypt.hash('admin123', 10);
+
+  // 2. Borramos al admin viejo si existe para evitar conflictos
+  await client.query(`DELETE FROM usuarios WHERE email = 'admin@nous.com'`);
+
+  // 3. Insertamos al admin nuevo y fresco
+  await client.query(`
+      INSERT INTO usuarios (nombre, email, password_hash, rol, tienda_id) 
+      VALUES ('Administrador Supremo', 'admin@nous.com', $1, 'admin', 1)
+    `, [hashSeguro]);
+
+  res.json({ message: '✅ Administrador reseteado con éxito. Ya puedes hacer login con admin123' });
+ } catch (error) {
+  res.status(500).json({ error: error.message });
+ } finally {
+  client.release();
+ }
+};
+module.exports = { register, login, fixAdmin };

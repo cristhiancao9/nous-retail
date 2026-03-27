@@ -58,7 +58,7 @@ El sistema utiliza una base de datos relacional estricta para garantizar que nun
 
 ## 🚀 2. Documentación de la API (Endpoints)
 
-Todas las rutas operan bajo `http://localhost:3000/api` y requieren autenticación mediante JWT (roles: `admin`, `empleado`).
+Todas las rutas operan bajo `http://localhost:3000/api` y requieren autenticación mediante JWT (roles: `admin`, `vendedor`).
 
 ### 📦 Módulo: Recepciones (`/recepciones`)
 
