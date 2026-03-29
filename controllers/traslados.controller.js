@@ -26,11 +26,14 @@ const crearTraslado = async (req, res) => {
   for (const item of items) {
    // Verificamos stock en la tienda de origen
    const stockRes = await client.query(`
-        SELECT s.id, COALESCE(i.cantidad, 0) as stock_actual, p.nombre_koaj
+        SELECT s.id,
+               COALESCE(SUM(k.cantidad), 0) AS stock_actual,
+               p.nombre_koaj
         FROM skus s
         JOIN productos p ON p.id = s.producto_id
-        LEFT JOIN inventario i ON i.sku_id = s.id AND i.tienda_id = $2
+        LEFT JOIN kardex k ON k.sku_id = s.id AND k.tienda_id = $2
         WHERE s.ean = $1
+        GROUP BY s.id, p.nombre_koaj
       `, [item.ean, tienda_origen]);
 
    if (stockRes.rowCount === 0) throw new Error(`Producto EAN ${item.ean} no encontrado.`);
@@ -179,4 +182,49 @@ const getTraslados = async (req, res) => {
  }
 };
 
-module.exports = { crearTraslado, despacharTraslado, recibirTraslado, getTraslados };
+const getTraslado = async (req, res) => {
+  const client = req.dbClient;
+  const { id } = req.params;
+
+  try {
+    const tRes = await client.query(`
+      SELECT
+        t.id, t.estado, t.notas, t.creado_en, t.recibido_en,
+        t.tienda_origen AS tienda_origen_id,
+        t.tienda_destino AS tienda_destino_id,
+        to_orig.nombre AS tienda_origen,
+        to_dest.nombre AS tienda_destino,
+        u.nombre AS creado_por
+      FROM traslados t
+      JOIN tiendas to_orig ON to_orig.id = t.tienda_origen
+      JOIN tiendas to_dest ON to_dest.id = t.tienda_destino
+      JOIN usuarios u ON u.id = t.usuario_id
+      WHERE t.id = $1
+    `, [id]);
+
+    if (tRes.rowCount === 0) return res.status(404).json({ error: 'Traslado no encontrado' });
+
+    const itemsRes = await client.query(`
+      SELECT
+        ti.id, ti.cantidad,
+        s.ean, s.id AS sku_id,
+        p.nombre_koaj AS nombre,
+        p.referencia_base,
+        COALESCE(ta.nombre, '') AS talla,
+        COALESCE(c.nombre, '')  AS color
+      FROM traslado_items ti
+      JOIN skus s ON s.id = ti.sku_id
+      JOIN productos p ON p.id = s.producto_id
+      LEFT JOIN tallas ta ON ta.id = s.talla_id
+      LEFT JOIN colores c  ON c.id  = p.color_id
+      WHERE ti.traslado_id = $1
+      ORDER BY p.nombre_koaj
+    `, [id]);
+
+    res.json({ traslado: tRes.rows[0], items: itemsRes.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { crearTraslado, despacharTraslado, recibirTraslado, getTraslados, getTraslado };

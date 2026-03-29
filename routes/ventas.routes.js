@@ -2,8 +2,11 @@ const express = require('express');
 const router = express.Router();
 
 // 1. Importar la función desde el controlador de ventas
-const { registrarVentaRapida, abrirCaja, getCajaActiva, cerrarCaja,
- crearVenta, getVenta, getVentasPorTienda, anularVenta } = require('../controllers/ventas.controller');
+const {
+  registrarVentaRapida, abrirCaja, getCajaActiva, cerrarCaja, getHistorialCajas,
+  crearVenta, getVenta, getVentasPorTienda, anularVenta,
+  consultarClienteFactus, getFacturaElectronica, descargarPdfFactura, enviarEmailFactura
+} = require('../controllers/ventas.controller');
 
 // 2. Importar el middleware de autenticación (ajusta la ruta según tu carpeta)
 const { requireAuth } = require('../middlewares/auth.middleware');
@@ -12,9 +15,16 @@ const { requireAuth } = require('../middlewares/auth.middleware');
 const rolesPermitidos = ['admin', 'vendedor'];
 
 // --- RUTAS DE CAJAS ---
-router.post('/cajas/abrir', requireAuth(['admin', 'vendedor']), abrirCaja);
+router.post('/cajas/abrir',            requireAuth(['admin', 'vendedor']), abrirCaja);
 router.get('/cajas/activa/:tienda_id', requireAuth(['admin', 'vendedor']), getCajaActiva);
-router.post('/cajas/:id/cerrar', requireAuth(['admin']), cerrarCaja);
+router.get('/cajas',                   requireAuth(['admin']),             getHistorialCajas);
+router.post('/cajas/:id/cerrar',       requireAuth(['admin']),             cerrarCaja);
+
+// --- RUTAS FACTUS ---
+router.get('/factus/cliente', requireAuth(rolesPermitidos), consultarClienteFactus);
+router.get('/factus/factura/:id', requireAuth(rolesPermitidos), getFacturaElectronica);
+router.get('/factus/factura/:id/pdf', requireAuth(rolesPermitidos), descargarPdfFactura);
+router.post('/factus/factura/:id/email', requireAuth(rolesPermitidos), enviarEmailFactura);
 
 // --- RUTAS DE VENTAS ---
 router.post('/venta-rapida', requireAuth(rolesPermitidos), registrarVentaRapida);

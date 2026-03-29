@@ -111,7 +111,59 @@ const crearDevolucion = async (req, res) => {
       [diferencia, devolucion_id]
     );
 
+    // 6. Impacto en caja activa — dentro de la transacción con lock
+    const cajaRes = await client.query(
+      `SELECT id FROM cajas WHERE tienda_id = $1 AND estado = 'abierta' LIMIT 1 FOR UPDATE`,
+      [venta.tienda_id]
+    );
+
+    if (cajaRes.rowCount > 0) {
+      const caja_id = cajaRes.rows[0].id;
+
+      if (tipo === 'devolucion') {
+        const refund = total_entrada;
+        const fp     = venta.forma_pago;
+        const vtotal = Number(venta.total) || 1;
+
+        const ef = fp === 'efectivo'      ? refund
+                 : fp === 'mixto'         ? Math.round(refund * (Number(venta.valor_efectivo) / vtotal))
+                 : 0;
+        const ta = fp === 'tarjeta'       ? refund
+                 : fp === 'mixto'         ? Math.round(refund * (Number(venta.valor_tarjeta) / vtotal))
+                 : 0;
+        const tr = fp === 'transferencia' ? refund
+                 : fp === 'mixto'         ? refund - ef - ta
+                 : 0;
+
+        await client.query(`
+          UPDATE cajas
+          SET total_efectivo       = total_efectivo       - $1,
+              total_tarjeta        = total_tarjeta        - $2,
+              total_transferencia  = total_transferencia  - $3
+          WHERE id = $4
+        `, [ef, ta, tr, caja_id]);
+      }
+
+      if (tipo === 'cambio' && diferencia < 0) {
+        const adicional = Math.abs(diferencia);
+        const metodo    = req.body.metodo_pago_adicional ?? 'efectivo';
+        await client.query(`
+          UPDATE cajas
+          SET total_efectivo      = total_efectivo      + $1,
+              total_tarjeta       = total_tarjeta       + $2,
+              total_transferencia = total_transferencia + $3
+          WHERE id = $4
+        `, [
+          metodo === 'efectivo'      ? adicional : 0,
+          metodo === 'tarjeta'       ? adicional : 0,
+          metodo === 'transferencia' ? adicional : 0,
+          caja_id,
+        ]);
+      }
+    }
+
     await client.query('COMMIT');
+
     res.status(201).json({
       message: tipo === 'cambio' ? 'Cambio registrado exitosamente.' : 'Devolución registrada exitosamente.',
       devolucion_id,

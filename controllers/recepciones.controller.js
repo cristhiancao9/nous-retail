@@ -125,19 +125,22 @@ const scanItem = async (req, res) => {
       if (!force_sku_id) {
         // Traemos los datos técnicos para que el administrador elija correctamente
         const pendientes = await client.query(`
-          SELECT DISTINCT 
-            s.id, 
-            p.referencia_base, 
-            p.nombre_koaj, 
-            p.nombre_diseno, 
-            t.codigo as talla, 
-            c.nombre as color
+          SELECT
+            s.id,
+            s.ean,
+            p.referencia_base,
+            p.nombre_koaj,
+            p.nombre_diseno,
+            t.codigo  AS talla,
+            c.nombre  AS color,
+            COUNT(*)::INT AS pendientes_count
           FROM nous.recepcion_items ri
-          JOIN nous.skus s ON s.id = ri.sku_id
+          JOIN nous.skus s     ON s.id = ri.sku_id
           JOIN nous.productos p ON p.id = s.producto_id
-          JOIN nous.colores c ON c.id = p.color_id
-          JOIN nous.tallas t ON t.id = s.talla_id
+          JOIN nous.colores c   ON c.id = p.color_id
+          JOIN nous.tallas t    ON t.id = s.talla_id
           WHERE ri.recepcion_id = $1 AND ri.verificado_por_empleado = FALSE
+          GROUP BY s.id, s.ean, p.referencia_base, p.nombre_koaj, p.nombre_diseno, t.codigo, c.nombre
           ORDER BY p.nombre_koaj ASC
         `, [recepcion_id]);
 
@@ -255,8 +258,76 @@ const getVerificationSummary = async (req, res) => {
   }
 };
 
+const getRecepciones = async (req, res) => {
+  const client = req.dbClient;
+  const tienda_id = req.query.tienda_id || req.user.tienda_id;
+
+  try {
+    const result = await client.query(`
+      SELECT
+        r.id,
+        r.factura_koaj,
+        r.numero_entrega,
+        r.fecha_factura,
+        r.estado,
+        r.total_unidades,
+        r.total_unidades_recibidas,
+        r.total_costo,
+        r.creado_en,
+        r.fecha_cierre,
+        u.nombre AS usuario
+      FROM recepciones r
+      LEFT JOIN usuarios u ON u.id = r.usuario_id
+      WHERE r.tienda_id = $1
+      ORDER BY r.creado_en DESC
+      LIMIT 50
+    `, [tienda_id]);
+
+    res.json({ recepciones: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const getReception = async (req, res) => {
-  res.json({ status: 'ok' });
+  const client = req.dbClient;
+  const { id } = req.params;
+
+  try {
+    const recepcion = await client.query(`
+      SELECT r.*, u.nombre AS usuario
+      FROM recepciones r
+      LEFT JOIN usuarios u ON u.id = r.usuario_id
+      WHERE r.id = $1
+    `, [id]);
+
+    if (recepcion.rowCount === 0) return res.status(404).json({ error: 'Recepción no encontrada.' });
+
+    const items = await client.query(`
+      SELECT
+        ri.id,
+        ri.sku_id,
+        ri.precio_lista,
+        ri.precio_costo,
+        ri.verificado_por_empleado,
+        ri.ean_escaneado,
+        p.nombre_koaj,
+        p.referencia_base,
+        t.codigo AS talla,
+        c.nombre AS color
+      FROM recepcion_items ri
+      JOIN skus s      ON s.id = ri.sku_id
+      JOIN productos p ON p.id = s.producto_id
+      JOIN tallas t    ON t.id = s.talla_id
+      JOIN colores c   ON c.id = p.color_id
+      WHERE ri.recepcion_id = $1
+      ORDER BY p.nombre_koaj, t.codigo
+    `, [id]);
+
+    res.json({ recepcion: recepcion.rows[0], items: items.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 };
 
 const getDiscrepancies = async (req, res) => {
@@ -378,4 +449,4 @@ const closeReception = async (req, res) => {
   }
 };
 
-module.exports = { uploadXML, getReception, getDiscrepancies, scanItem, closeReception, getVerificationSummary, getFacturaTrazabilidad };
+module.exports = { uploadXML, getRecepciones, getReception, getDiscrepancies, scanItem, closeReception, getVerificationSummary, getFacturaTrazabilidad };

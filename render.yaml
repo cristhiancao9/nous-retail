@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: nous-retail-api
+    runtime: node
+    plan: starter
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: DATABASE_URL
+        fromDatabase:
+          name: nous-retail-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: TENANT_SCHEMA
+        value: nous
+      - key: CORS_ORIGINS
+        sync: false   # lo ingresas manualmente en el dashboard (URL de Netlify)
+      - key: FACTUS_URL
+        sync: false
+      - key: FACTUS_CLIENT_ID
+        sync: false
+      - key: FACTUS_CLIENT_SECRET
+        sync: false
+      - key: FACTUS_USERNAME
+        sync: false
+      - key: FACTUS_PASSWORD
+        sync: false
+      - key: FACTUS_FE_RANGE_ID
+        sync: false
+      - key: FACTUS_NC_RANGE_ID
+        sync: false
+
+databases:
+  - name: nous-retail-db
+    plan: starter
+    databaseName: nous_retail
+    user: nous_admin

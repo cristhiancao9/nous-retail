@@ -118,4 +118,37 @@ const fixAdmin = async (req, res) => {
   client.release();
  }
 };
-module.exports = { register, login, fixAdmin };
+const getUsuarios = async (req, res) => {
+  const client = req.dbClient;
+  try {
+    const result = await client.query(`
+      SELECT u.id, u.nombre, u.email, u.rol, u.tienda_id, u.activo, u.creado_en,
+             t.nombre AS tienda_nombre
+      FROM usuarios u
+      LEFT JOIN tiendas t ON t.id = u.tienda_id
+      ORDER BY u.creado_en DESC
+    `);
+    res.json({ usuarios: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+const toggleUsuario = async (req, res) => {
+  const client = req.dbClient;
+  const { id } = req.params;
+  try {
+    const result = await client.query(`
+      UPDATE usuarios
+      SET activo = NOT activo
+      WHERE id = $1
+      RETURNING id, nombre, activo
+    `, [id]);
+    if (result.rowCount === 0) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json({ usuario: result.rows[0] });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { register, login, fixAdmin, getUsuarios, toggleUsuario };

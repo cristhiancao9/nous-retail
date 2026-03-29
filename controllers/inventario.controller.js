@@ -1,3 +1,33 @@
+const getInventario = async (req, res) => {
+  const client = req.dbClient;
+  const tienda_id = req.query.tienda_id || req.user.tienda_id;
+
+  try {
+    const result = await client.query(`
+      SELECT
+        s.id        AS sku_id,
+        s.ean,
+        p.referencia_base,
+        p.nombre_koaj,
+        t.codigo    AS talla,
+        c.nombre    AS color,
+        COALESCE(i.cantidad, 0)  AS stock_actual,
+        pr.precio_venta
+      FROM skus s
+      JOIN productos p  ON p.id = s.producto_id
+      JOIN tallas t     ON t.id = s.talla_id
+      JOIN colores c    ON c.id = p.color_id
+      LEFT JOIN inventario i   ON i.sku_id = s.id  AND i.tienda_id = $1
+      LEFT JOIN precios    pr  ON pr.sku_id = s.id AND pr.tienda_id = $1
+      ORDER BY p.nombre_koaj, t.codigo
+    `, [tienda_id]);
+
+    res.json({ inventario: result.rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
 const getStoreStock = async (req, res) => {
  const client = req.dbClient;
  const { tienda_id } = req.params;
@@ -66,4 +96,75 @@ const getKardexBySku = async (req, res) => {
  }
 };
 
-module.exports = { getStoreStock, getKardexBySku };
+// Busca un producto por EAN exacto, referencia_base o nombre para el POS
+const buscarProducto = async (req, res) => {
+  const client = req.dbClient;
+  const { ean, q, tienda_id } = req.query;
+
+  if (!ean && !q) return res.status(400).json({ error: 'Se requiere ean o q.' });
+  if (!tienda_id)  return res.status(400).json({ error: 'Se requiere tienda_id.' });
+
+  try {
+    let rows;
+
+    if (ean) {
+      // Búsqueda exacta por EAN
+      const result = await client.query(`
+        SELECT
+          s.id            AS sku_id,
+          s.ean,
+          p.nombre_koaj   AS nombre,
+          p.referencia_base,
+          t.codigo        AS talla,
+          c.nombre        AS color,
+          pr.precio_venta,
+          COALESCE(i.cantidad, 0) AS stock_actual
+        FROM skus s
+        JOIN productos p  ON p.id  = s.producto_id
+        JOIN tallas t     ON t.id  = s.talla_id
+        JOIN colores c    ON c.id  = p.color_id
+        LEFT JOIN precios    pr ON pr.sku_id = s.id AND pr.tienda_id = $2
+        LEFT JOIN inventario i  ON i.sku_id  = s.id AND i.tienda_id = $2
+        WHERE s.ean = $1
+        LIMIT 1
+      `, [ean, tienda_id]);
+      rows = result.rows;
+    } else {
+      // Búsqueda parcial por nombre o referencia (máx 10 resultados)
+      const termino = `%${q}%`;
+      const result = await client.query(`
+        SELECT
+          s.id            AS sku_id,
+          s.ean,
+          p.nombre_koaj   AS nombre,
+          p.referencia_base,
+          t.codigo        AS talla,
+          c.nombre        AS color,
+          pr.precio_venta,
+          COALESCE(i.cantidad, 0) AS stock_actual
+        FROM skus s
+        JOIN productos p  ON p.id  = s.producto_id
+        JOIN tallas t     ON t.id  = s.talla_id
+        JOIN colores c    ON c.id  = p.color_id
+        LEFT JOIN precios    pr ON pr.sku_id = s.id AND pr.tienda_id = $2
+        LEFT JOIN inventario i  ON i.sku_id  = s.id AND i.tienda_id = $2
+        WHERE p.nombre_koaj ILIKE $1
+           OR p.referencia_base ILIKE $1
+        ORDER BY p.nombre_koaj, t.codigo
+        LIMIT 10
+      `, [termino, tienda_id]);
+      rows = result.rows;
+    }
+
+    if (rows.length === 0) {
+      return res.json(ean ? { producto: null } : { productos: [] });
+    }
+
+    // Si fue búsqueda por EAN devuelve objeto único; por texto devuelve array
+    res.json(ean ? { producto: rows[0] } : { productos: rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+module.exports = { getInventario, getStoreStock, getKardexBySku, buscarProducto };

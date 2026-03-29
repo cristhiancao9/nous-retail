@@ -9,8 +9,10 @@ const ventasRoutes = require('./ventas.routes');
 const trasladosRoutes = require('./traslados.routes');
 const devolucionesRoutes = require('./devoluciones.routes');
 const ajustesRoutes = require('./ajustes.routes');
+const dashboardRoutes = require('./dashboard.routes');
 
 router.use('/auth', authRoutes);
+router.use('/dashboard', dashboardRoutes);
 router.use('/inventario', inventarioRoutes);
 router.use('/recepciones', recepcionesRoutes);
 router.use('/ventas', ventasRoutes);
