@@ -5,7 +5,7 @@ const factusService = require('../services/factus.service');
 async function emitirFacturaAsync(fe_id, payload, tenantSchema) {
   const dbClient = await pool.connect();
   try {
-    await dbClient.query(`SET search_path = "${tenantSchema}", public`);
+    await dbClient.query(`SET search_path = "${tenantSchema}", public; SET timezone = 'America/Bogota';`);
     const resultado = await factusService.emitirFacturaElectronica(payload);
     const bill = resultado?.data?.bill || {};
     await dbClient.query(`
@@ -559,7 +559,7 @@ const anularVenta = async (req, res) => {
 async function emitirNotaCreditoAsync(fe_id, billId, venta_id, payloadOriginal, tenantSchema, numeroFactura) {
   const dbClient = await pool.connect();
   try {
-    await dbClient.query(`SET search_path = "${tenantSchema}", public`);
+    await dbClient.query(`SET search_path = "${tenantSchema}", public; SET timezone = 'America/Bogota';`);
 
     const resultado = await factusService.emitirNotaCredito({
       bill_id:             billId,

@@ -45,7 +45,7 @@ const login = async (req, res) => {
  const tenantSchema = process.env.TENANT_SCHEMA || 'nous';
 
  try {
-  await client.query(`SET search_path TO "${tenantSchema}"`);
+  await client.query(`SET search_path TO "${tenantSchema}"; SET timezone = 'America/Bogota';`);
 
   const result = await client.query(`
       SELECT * FROM usuarios WHERE email = $1
@@ -97,7 +97,7 @@ const fixAdmin = async (req, res) => {
  const tenantSchema = process.env.TENANT_SCHEMA || 'nous';
 
  try {
-  await client.query(`SET search_path TO "${tenantSchema}"`);
+  await client.query(`SET search_path TO "${tenantSchema}"; SET timezone = 'America/Bogota';`);
 
   // 1. Encriptamos la contraseña "admin123" aquí mismo
   const hashSeguro = await bcrypt.hash('admin123', 10);

@@ -24,7 +24,10 @@ const requireAuth = (allowedRoles = []) => {
 
    // Inyectar el search_path de forma segura (asumiendo que tenant_schema viene validado en el JWT)
    // Usamos comillas dobles por si el nombre del schema tiene caracteres especiales
-   await client.query(`SET search_path = "${decoded.tenant_schema}", public`);
+   await client.query(`
+     SET search_path = "${decoded.tenant_schema}", public;
+     SET timezone = 'America/Bogota';
+   `);
 
    // Pasamos el cliente y el usuario a los controladores
    req.dbClient = client;

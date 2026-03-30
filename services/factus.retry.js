@@ -13,7 +13,7 @@ async function reintentarFacturasPendientes() {
     dbClient = await pool.connect();
 
     const tenantSchema = process.env.TENANT_SCHEMA || 'nous';
-    await dbClient.query(`SET search_path = "${tenantSchema}", public`);
+    await dbClient.query(`SET search_path = "${tenantSchema}", public; SET timezone = 'America/Bogota';`);
 
     // Buscar FE pendientes o con error que aún tienen intentos disponibles
     const result = await dbClient.query(`
