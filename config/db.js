@@ -2,12 +2,13 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// Render (y la mayoría de plataformas cloud) proveen DATABASE_URL como connection string.
-// En local usamos las variables individuales.
+const isProduction = process.env.NODE_ENV === 'production';
+const ssl = isProduction ? { rejectUnauthorized: false } : false;
+
 const pool = process.env.DATABASE_URL
   ? new Pool({
       connectionString: process.env.DATABASE_URL,
-      ssl: { rejectUnauthorized: false }, // requerido por Render PostgreSQL
+      ssl,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
@@ -18,6 +19,7 @@ const pool = process.env.DATABASE_URL
       user:     process.env.DB_USER,
       password: process.env.DB_PASSWORD,
       database: process.env.DB_NAME,
+      ssl,
       max: 20,
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 2000,
