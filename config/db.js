@@ -25,9 +25,14 @@ const pool = process.env.DATABASE_URL
       connectionTimeoutMillis: 2000,
     });
 
+// Forzar zona horaria Colombia en cada conexión nueva del pool
+pool.on('connect', (client) => {
+  client.query("SET timezone = 'America/Bogota'");
+});
+
 pool.on('error', (err, client) => {
- console.error('Error inesperado en el pool de idle clients', err);
- process.exit(-1);
+  console.error('Error inesperado en el pool de idle clients', err);
+  process.exit(-1);
 });
 
 module.exports = pool;
