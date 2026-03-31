@@ -108,8 +108,8 @@ const buscarProducto = async (req, res) => {
     let rows;
 
     if (ean) {
-      // Búsqueda exacta por EAN
-      const result = await client.query(`
+      // 1. Búsqueda exacta por EAN
+      const resultEan = await client.query(`
         SELECT
           s.id            AS sku_id,
           s.ean,
@@ -118,17 +118,55 @@ const buscarProducto = async (req, res) => {
           t.codigo        AS talla,
           c.nombre        AS color,
           pr.precio_venta,
-          COALESCE(i.cantidad, 0) AS stock_actual
+          COALESCE(SUM(k.cantidad), 0) AS stock_actual
         FROM skus s
         JOIN productos p  ON p.id  = s.producto_id
         JOIN tallas t     ON t.id  = s.talla_id
         JOIN colores c    ON c.id  = p.color_id
-        LEFT JOIN precios    pr ON pr.sku_id = s.id AND pr.tienda_id = $2
-        LEFT JOIN inventario i  ON i.sku_id  = s.id AND i.tienda_id = $2
+        LEFT JOIN precios pr ON pr.sku_id = s.id AND pr.tienda_id = $2
+        LEFT JOIN kardex  k  ON k.sku_id  = s.id AND k.tienda_id = $2
         WHERE s.ean = $1
+        GROUP BY s.id, s.ean, p.nombre_koaj, p.referencia_base, t.codigo, c.nombre, pr.precio_venta
         LIMIT 1
       `, [ean, tienda_id]);
-      rows = result.rows;
+
+      if (resultEan.rows.length > 0) {
+        return res.json({ producto: resultEan.rows[0] });
+      }
+
+      // 2. Fallback: búsqueda exacta por referencia_base → devuelve todas las tallas disponibles
+      const resultRef = await client.query(`
+        SELECT
+          s.id            AS sku_id,
+          s.ean,
+          p.nombre_koaj   AS nombre,
+          p.referencia_base,
+          t.codigo        AS talla,
+          c.nombre        AS color,
+          pr.precio_venta,
+          COALESCE(SUM(k.cantidad), 0) AS stock_actual
+        FROM skus s
+        JOIN productos p  ON p.id  = s.producto_id
+        JOIN tallas t     ON t.id  = s.talla_id
+        JOIN colores c    ON c.id  = p.color_id
+        LEFT JOIN precios pr ON pr.sku_id = s.id AND pr.tienda_id = $2
+        LEFT JOIN kardex  k  ON k.sku_id  = s.id AND k.tienda_id = $2
+        WHERE UPPER(p.referencia_base) = UPPER($1)
+        GROUP BY s.id, s.ean, p.nombre_koaj, p.referencia_base, t.codigo, c.nombre, pr.precio_venta
+        ORDER BY t.codigo
+      `, [ean, tienda_id]);
+
+      if (resultRef.rows.length === 0) {
+        return res.json({ producto: null });
+      }
+
+      // Si solo hay una talla, la agrega directo como si fuera EAN
+      if (resultRef.rows.length === 1) {
+        return res.json({ producto: resultRef.rows[0] });
+      }
+
+      return res.json({ productos: resultRef.rows, tipo: 'referencia' });
+
     } else {
       // Búsqueda parcial por nombre o referencia (máx 10 resultados)
       const termino = `%${q}%`;
@@ -141,15 +179,16 @@ const buscarProducto = async (req, res) => {
           t.codigo        AS talla,
           c.nombre        AS color,
           pr.precio_venta,
-          COALESCE(i.cantidad, 0) AS stock_actual
+          COALESCE(SUM(k.cantidad), 0) AS stock_actual
         FROM skus s
         JOIN productos p  ON p.id  = s.producto_id
         JOIN tallas t     ON t.id  = s.talla_id
         JOIN colores c    ON c.id  = p.color_id
-        LEFT JOIN precios    pr ON pr.sku_id = s.id AND pr.tienda_id = $2
-        LEFT JOIN inventario i  ON i.sku_id  = s.id AND i.tienda_id = $2
+        LEFT JOIN precios pr ON pr.sku_id = s.id AND pr.tienda_id = $2
+        LEFT JOIN kardex  k  ON k.sku_id  = s.id AND k.tienda_id = $2
         WHERE p.nombre_koaj ILIKE $1
            OR p.referencia_base ILIKE $1
+        GROUP BY s.id, s.ean, p.nombre_koaj, p.referencia_base, t.codigo, c.nombre, pr.precio_venta
         ORDER BY p.nombre_koaj, t.codigo
         LIMIT 10
       `, [termino, tienda_id]);
